@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Авторизация...</title>
+  <style>
+    body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; background: #f5f5f5; }
+    .loader { text-align: center; color: #666; }
+    .spinner { width: 32px; height: 32px; border: 3px solid #ddd; border-top-color: #fc3f1d; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { color: #c0392b; }
+  </style>
+</head>
+<body>
+  <div class="loader" id="status">
+    <div class="spinner"></div>
+    <p>Выполняется вход...</p>
+  </div>
+
+  <script>
+    function showError(msg) {
+      document.getElementById('status').innerHTML = '<p class="error">Ошибка: ' + msg + '</p>';
+      setTimeout(function() { window.location.href = '/'; }, 3000);
+    }
+
+    var hash = window.location.hash.slice(1);
+    var params = new URLSearchParams(hash);
+    var accessToken = params.get('access_token');
+
+    if (!accessToken) {
+      var err = params.get('error') || new URLSearchParams(window.location.search).get('error') || 'no_token';
+      if (window.opener) { window.close(); } else { window.location.href = '/?error=' + encodeURIComponent(err); }
+    } else {
+      fetch('/api/auth/yandex/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: accessToken })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.token) { showError(data.message || 'auth_failed'); return; }
+        if (window.opener) {
+          // Popup mode: signal main window via localStorage event, then close
+          localStorage.setItem('yandex_auth_token', data.token);
+          window.close();
+        } else {
+          // Redirect mode: navigate current tab
+          window.location.href = '/auth/callback?token=' + encodeURIComponent(data.token);
+        }
+      })
+      .catch(function(e) { showError(e.message || 'fetch_failed'); });
+    }
+  </script>
+</body>
+</html>
