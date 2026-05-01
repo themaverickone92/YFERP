@@ -66,8 +66,18 @@ export async function syncYandexMarketStocksForCompany(companyId: number): Promi
         )
       );
 
-    if (!integration?.apiKey || !integration?.campaignId) {
-      return { synced: 0, error: "No active Yandex Market integration with API key and campaign ID" };
+    if (!integration?.apiKey) {
+      return { synced: 0, error: "No active Yandex Market integration with API key" };
+    }
+
+    const settings = (integration as any).settings as { campaignIds?: string[] } | null;
+    const campaignIdsRaw: string[] = Array.isArray(settings?.campaignIds) && settings!.campaignIds!.length > 0
+      ? settings!.campaignIds!
+      : (integration.campaignId ? [integration.campaignId] : []);
+    const campaignIds = Array.from(new Set(campaignIdsRaw.map(c => String(c).trim()).filter(Boolean)));
+
+    if (campaignIds.length === 0) {
+      return { synced: 0, error: "No active Yandex Market integration with campaign ID(s)" };
     }
 
     const companyProducts = await storage.getCompanyProducts(companyId);
@@ -91,63 +101,66 @@ export async function syncYandexMarketStocksForCompany(companyId: number): Promi
     type ThreeplKey = string;
     const threeplMap = new Map<ThreeplKey, { sku: string; warehouseName: string; qtyNew: number; qtyDefect: number; qtyReserved: number }>();
 
-    for (let i = 0; i < offerIds.length; i += BATCH_SIZE) {
-      const batch = offerIds.slice(i, i + BATCH_SIZE);
-      const warehouses = await fetchStocksPage(integration.campaignId, integration.apiKey, batch);
+    // Stocks from multiple campaigns (cabinets) are summed per (sku, warehouseId, stockType).
+    for (const campaignId of campaignIds) {
+      for (let i = 0; i < offerIds.length; i += BATCH_SIZE) {
+        const batch = offerIds.slice(i, i + BATCH_SIZE);
+        const warehouses = await fetchStocksPage(campaignId, integration.apiKey, batch);
 
-      for (const warehouse of warehouses) {
-        const wId = warehouse.warehouseId;
-        const threeplName = THREEPL_ATTRIBUTED_WAREHOUSES[wId];
-        if (threeplName !== undefined) {
-          // This warehouse belongs to 3PL — collect its stock for threepl_stock_details
+        for (const warehouse of warehouses) {
+          const wId = warehouse.warehouseId;
+          const threeplName = THREEPL_ATTRIBUTED_WAREHOUSES[wId];
+          if (threeplName !== undefined) {
+            // This warehouse belongs to 3PL — collect its stock for threepl_stock_details
+            for (const offer of warehouse.offers || []) {
+              const sku = String(offer.offerId);
+              const key: ThreeplKey = `${sku}|${threeplName}`;
+              if (!threeplMap.has(key)) threeplMap.set(key, { sku, warehouseName: threeplName, qtyNew: 0, qtyDefect: 0, qtyReserved: 0 });
+              const entry = threeplMap.get(key)!;
+              for (const s of offer.stocks || []) {
+                const cnt = s.count || 0;
+                if (cnt === 0) continue;
+                if (s.type === "AVAILABLE") entry.qtyNew += cnt;
+                else if (s.type === "DEFECT" || s.type === "QUARANTINE") entry.qtyDefect += cnt;
+                else if (s.type === "FREEZE") entry.qtyReserved += cnt;
+              }
+            }
+            continue; // do NOT include in YM aggregates or YM details
+          }
+          const isTransit = (warehouse.warehouseName || "").toLowerCase().includes(TRANSIT_KEYWORD);
+          const wName = warehouse.warehouseName || String(wId);
+
           for (const offer of warehouse.offers || []) {
             const sku = String(offer.offerId);
-            const key: ThreeplKey = `${sku}|${threeplName}`;
-            if (!threeplMap.has(key)) threeplMap.set(key, { sku, warehouseName: threeplName, qtyNew: 0, qtyDefect: 0, qtyReserved: 0 });
-            const entry = threeplMap.get(key)!;
+            if (!stockMap.has(sku)) stockMap.set(sku, { available: 0, inTransit: 0 });
+            const entry = stockMap.get(sku)!;
+
             for (const s of offer.stocks || []) {
               const cnt = s.count || 0;
               if (cnt === 0) continue;
-              if (s.type === "AVAILABLE") entry.qtyNew += cnt;
-              else if (s.type === "DEFECT" || s.type === "QUARANTINE") entry.qtyDefect += cnt;
-              else if (s.type === "FREEZE") entry.qtyReserved += cnt;
-            }
-          }
-          continue; // do NOT include in YM aggregates or YM details
-        }
-        const isTransit = (warehouse.warehouseName || "").toLowerCase().includes(TRANSIT_KEYWORD);
-        const wName = warehouse.warehouseName || String(wId);
 
-        for (const offer of warehouse.offers || []) {
-          const sku = String(offer.offerId);
-          if (!stockMap.has(sku)) stockMap.set(sku, { available: 0, inTransit: 0 });
-          const entry = stockMap.get(sku)!;
+              // Aggregate totals (summed across campaigns)
+              if (isTransit) {
+                entry.inTransit += cnt;
+              } else if (s.type === "AVAILABLE") {
+                entry.available += cnt;
+              }
 
-          for (const s of offer.stocks || []) {
-            const cnt = s.count || 0;
-            if (cnt === 0) continue;
-
-            // Aggregate totals
-            if (isTransit) {
-              entry.inTransit += cnt;
-            } else if (s.type === "AVAILABLE") {
-              entry.available += cnt;
-            }
-
-            // Store detail
-            const key = `${sku}|${wId}|${s.type}`;
-            const existing = detailMap.get(key);
-            if (existing) {
-              existing.count += cnt;
-            } else {
-              detailMap.set(key, { sku, warehouseId: wId, warehouseName: wName, stockType: s.type, count: cnt });
+              // Per-warehouse detail — sum if same key appears from another campaign
+              const key = `${sku}|${wId}|${s.type}`;
+              const existing = detailMap.get(key);
+              if (existing) {
+                existing.count += cnt;
+              } else {
+                detailMap.set(key, { sku, warehouseId: wId, warehouseName: wName, stockType: s.type, count: cnt });
+              }
             }
           }
         }
-      }
 
-      if (i + BATCH_SIZE < offerIds.length) {
-        await new Promise(r => setTimeout(r, 300));
+        if (i + BATCH_SIZE < offerIds.length) {
+          await new Promise(r => setTimeout(r, 300));
+        }
       }
     }
 
@@ -180,7 +193,7 @@ export async function syncYandexMarketStocksForCompany(companyId: number): Promi
       console.log(`[YM sync] company=${companyId} saved ${threeplDetailRows.length} rows to 3PL details (attributed warehouses)`);
     }
 
-    console.log(`[YM sync] company=${companyId} synced ${rows.length} SKUs, ${detailRows.length} detail rows`);
+    console.log(`[YM sync] company=${companyId} synced ${rows.length} SKUs, ${detailRows.length} detail rows across ${campaignIds.length} campaign(s)`);
     return { synced: rows.length };
   } catch (err: any) {
     console.error(`[YM sync] company=${companyId} error:`, err.message);

@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import { Plus, CheckCircle, XCircle, Warehouse, Settings, Trash2 } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Warehouse, Settings, Trash2, X } from "lucide-react";
 import ozonIcon from "@assets/ozon-icon.gif";
 import wildberriesIcon from "@assets/wildberries-icon.png";
 import yandexMarketIcon from "@assets/yandex-market-icon.png";
@@ -26,7 +26,7 @@ type Integration = {
   clientId?: string;
   businessId?: string;
   campaignId?: string;
-  settings?: any;
+  settings?: { campaignIds?: string[]; [k: string]: any } | null;
   lastSyncAt?: string;
   createdAt?: string;
 };
@@ -70,11 +70,25 @@ const marketplaces = [
     icon: yandexMarketIcon,
     fields: [
       { key: "businessId", label: "Business ID", type: "text" },
-      { key: "campaignId", label: "Campaign ID", type: "text" },
+      { key: "campaignIds", label: "Campaign IDs", type: "multi-text" },
       { key: "apiKey", label: "API Key", type: "password" },
     ],
   },
 ];
+
+function fieldHasValue(integration: any, field: any): boolean {
+  if (field.type === "multi-text") {
+    const arr = integration?.settings?.[field.key];
+    if (Array.isArray(arr) && arr.some((v: any) => v && String(v).trim() !== "")) return true;
+    if (field.key === "campaignIds") {
+      const legacy = integration?.campaignId;
+      return !!(legacy && String(legacy).trim() !== "");
+    }
+    return false;
+  }
+  const value = integration?.[field.key];
+  return !!(value && String(value).trim() !== "");
+}
 
 function IntegrationDialog({ marketplace, integration, onSave }: {
   marketplace: any;
@@ -82,39 +96,66 @@ function IntegrationDialog({ marketplace, integration, onSave }: {
   onSave: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [formData, setFormData] = useState(() => {
+  const buildInitialFormData = () => {
     const initial: any = {};
     marketplace.fields.forEach((field: any) => {
-      initial[field.key] = integration?.[field.key] || "";
+      if (field.type === "multi-text") {
+        const fromSettings = integration?.settings?.[field.key];
+        if (Array.isArray(fromSettings) && fromSettings.length > 0) {
+          initial[field.key] = fromSettings.map((v: any) => String(v ?? ""));
+        } else if (field.key === "campaignIds" && integration?.campaignId) {
+          initial[field.key] = [integration.campaignId];
+        } else {
+          initial[field.key] = [""];
+        }
+      } else {
+        initial[field.key] = integration?.[field.key] || "";
+      }
     });
     return initial;
-  });
+  };
+  const [formData, setFormData] = useState(buildInitialFormData);
 
   // Reset form data when dialog opens and integration changes
   useEffect(() => {
     if (isOpen) {
-      const initial: any = {};
-      marketplace.fields.forEach((field: any) => {
-        initial[field.key] = integration?.[field.key] || "";
-      });
-      setFormData(initial);
+      setFormData(buildInitialFormData());
     }
   }, [isOpen, integration, marketplace.fields]);
   const { toast } = useToast();
 
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
-      const endpoint = integration 
+      const endpoint = integration
         ? `/api/integrations/${integration.id}`
         : "/api/integrations";
       const method = integration ? "PUT" : "POST";
-      
+
+      // Transform multi-text fields into shape expected by backend:
+      // - settings.<fieldKey> stores the array
+      // - for campaignIds, also mirror first value into the legacy `campaignId` column
+      const transformed: any = { ...data };
+      const settings: any = { ...(integration?.settings || {}) };
+      marketplace.fields.forEach((field: any) => {
+        if (field.type === "multi-text") {
+          const arr = (data[field.key] || [])
+            .map((v: string) => (v ?? "").trim())
+            .filter((v: string) => v.length > 0);
+          settings[field.key] = arr;
+          delete transformed[field.key];
+          if (field.key === "campaignIds") {
+            transformed.campaignId = arr[0] || "";
+          }
+        }
+      });
+      transformed.settings = settings;
+
       const payload = {
         marketplace: marketplace.id,
-        ...data,
-        isEnabled: data.isEnabled !== false ? true : false,
+        ...transformed,
+        isEnabled: transformed.isEnabled !== false ? true : false,
       };
-      
+
       return await apiRequest(method, endpoint, payload);
     },
     onSuccess: (data) => {
@@ -163,12 +204,20 @@ function IntegrationDialog({ marketplace, integration, onSave }: {
     }
   };
 
+  const isFieldEmpty = (field: any) => {
+    if (field.type === "multi-text") {
+      const arr = formData[field.key];
+      return !Array.isArray(arr) || arr.every((v: string) => !v?.trim());
+    }
+    return !formData[field.key]?.trim();
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Check if all fields are empty (user wants to disconnect)
-    const allFieldsEmpty = marketplace.fields.every((field: any) => !formData[field.key]?.trim());
-    
+    const allFieldsEmpty = marketplace.fields.every(isFieldEmpty);
+
     if (allFieldsEmpty && integration) {
       // User cleared all fields - treat as disconnection
       updateMutation.mutate({
@@ -177,9 +226,9 @@ function IntegrationDialog({ marketplace, integration, onSave }: {
       });
       return;
     }
-    
+
     // Validate required fields for connection
-    const emptyFields = marketplace.fields.filter((field: any) => !formData[field.key]?.trim());
+    const emptyFields = marketplace.fields.filter(isFieldEmpty);
     if (emptyFields.length > 0) {
       toast({
         title: "Error",
@@ -196,10 +245,7 @@ function IntegrationDialog({ marketplace, integration, onSave }: {
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <button className="text-blue-600 hover:text-blue-700 text-xs font-medium">
-          {integration && marketplace.fields.every((field: any) => {
-            const value = integration?.[field.key];
-            return value && value.trim() !== '';
-          }) ? 'Edit Integration' : 'Add Integration'}
+          {integration && marketplace.fields.every((field: any) => fieldHasValue(integration, field)) ? 'Edit Integration' : 'Add Integration'}
         </button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
@@ -219,19 +265,75 @@ function IntegrationDialog({ marketplace, integration, onSave }: {
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {marketplace.fields.map((field: any) => (
-            <div key={field.key} className="space-y-2">
-              <Label htmlFor={field.key}>{field.label}</Label>
-              <Input
-                id={field.key}
-                type={field.type}
-                value={formData[field.key]}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, [field.key]: e.target.value }))}
-                placeholder={`Enter ${field.label.toLowerCase()}`}
-                required
-              />
-            </div>
-          ))}
+          {marketplace.fields.map((field: any) => {
+            if (field.type === "multi-text") {
+              const values: string[] = Array.isArray(formData[field.key]) ? formData[field.key] : [""];
+              const updateAt = (idx: number, val: string) => {
+                setFormData((prev: any) => {
+                  const next = [...(prev[field.key] || [])];
+                  next[idx] = val;
+                  return { ...prev, [field.key]: next };
+                });
+              };
+              const removeAt = (idx: number) => {
+                setFormData((prev: any) => {
+                  const next = [...(prev[field.key] || [])];
+                  next.splice(idx, 1);
+                  return { ...prev, [field.key]: next.length ? next : [""] };
+                });
+              };
+              const addRow = () => {
+                setFormData((prev: any) => ({
+                  ...prev,
+                  [field.key]: [...(prev[field.key] || []), ""],
+                }));
+              };
+              return (
+                <div key={field.key} className="space-y-2">
+                  <Label>{field.label}</Label>
+                  <div className="space-y-2">
+                    {values.map((v, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <Input
+                          type="text"
+                          value={v}
+                          onChange={(e) => updateAt(idx, e.target.value)}
+                          placeholder={`Enter ${field.label.slice(0, -1).toLowerCase()}`}
+                        />
+                        {values.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeAt(idx)}
+                            aria-label="Remove"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={addRow}>
+                    <Plus className="w-3 h-3 mr-1" /> Add Campaign ID
+                  </Button>
+                </div>
+              );
+            }
+            return (
+              <div key={field.key} className="space-y-2">
+                <Label htmlFor={field.key}>{field.label}</Label>
+                <Input
+                  id={field.key}
+                  type={field.type}
+                  value={formData[field.key]}
+                  onChange={(e) => setFormData((prev: any) => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder={`Enter ${field.label.toLowerCase()}`}
+                  required
+                />
+              </div>
+            );
+          })}
           <div className="flex justify-end space-x-2 pt-4">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
               Cancel
@@ -561,11 +663,8 @@ export default function IntegrationsTab() {
             const integration = getIntegration(marketplace.id);
             
             // Check if integration has all required credentials
-            const hasValidCredentials = integration?.isEnabled && 
-              marketplace.fields.every((field: any) => {
-                const value = (integration as any)?.[field.key];
-                return value && value.trim() !== '';
-              });
+            const hasValidCredentials = integration?.isEnabled &&
+              marketplace.fields.every((field: any) => fieldHasValue(integration, field));
             
             const isConnected = hasValidCredentials;
 
