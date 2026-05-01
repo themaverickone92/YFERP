@@ -1008,16 +1008,11 @@ export default function Inventory() {
 
 
   const handleExport = async () => {
-    const params = new URLSearchParams({ page: "1", limit: "100000", search: debouncedSearch, sort: "productName", order: "asc" });
-    if (statusFilters.length > 0) params.set("statuses", JSON.stringify(statusFilters));
-    if (categoryFilters.length > 0) params.set("cats", JSON.stringify(categoryFilters));
-    if (vsFilters.length > 0) params.set("valueStreams", JSON.stringify(vsFilters));
-    if (brandFilters.length > 0) params.set("brands", JSON.stringify(brandFilters));
-    if (supplierFilters.length > 0) params.set("suppliers", JSON.stringify(supplierFilters));
-    const res = await fetch(`/api/products?${params}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
-    if (!res.ok) return;
-    const data = await res.json();
-    const rows = (data.products as Product[]).map(p => {
+    // Export the same set the user sees in the table: server-side filters
+    // (search/status/cats/VS/brand/supplier) plus client-side ones
+    // (Availability + "hide zero-stock rows") are already applied in
+    // nonZeroProducts.
+    const rows = nonZeroProducts.map(p => {
       const ym = (ymStocks as any)?.[p.sku];
       const oz = (ozonStocksData as any)?.[p.sku];
       const wb = (wbStocksData as any)?.[p.sku];
