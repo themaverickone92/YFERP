@@ -1797,9 +1797,9 @@ export class DatabaseStorage implements IStorage {
     const where = sql.join(conditions, sql` AND `);
     const result = await db.execute(sql`
       SELECT
-        COUNT(*) FILTER (WHERE p.value_stream NOT IN ('Fashion', 'Alice'))::int          AS total_active,
+        COUNT(*) FILTER (WHERE p.value_stream <> 'Alice')::int          AS total_active,
         COUNT(*) FILTER (WHERE
-          p.value_stream NOT IN ('Fashion', 'Alice')
+          p.value_stream <> 'Alice'
           AND (
             COALESCE(pl.stock_available, 0) > 0
             OR EXISTS (
@@ -1818,7 +1818,7 @@ export class DatabaseStorage implements IStorage {
           )
         )::int                                                                          AS total_availability,
         COUNT(*) FILTER (WHERE
-          p.value_stream NOT IN ('Fashion', 'Alice')
+          p.value_stream <> 'Alice'
           AND (
             COALESCE(pl.stock_available, 0) > 0
             OR EXISTS (SELECT 1 FROM yandex_market_stock_details yd WHERE yd.company_id = p.company_id AND yd.sku = p.sku AND yd.warehouse_id = 313 AND yd.stock_type = 'AVAILABLE' AND yd.count > 0)
@@ -1826,7 +1826,7 @@ export class DatabaseStorage implements IStorage {
           )
           AND COALESCE(ym.stock_available, 0) > 0)::int                                AS ym_availability,
         COUNT(*) FILTER (WHERE
-          p.value_stream NOT IN ('Fashion', 'Alice')
+          p.value_stream <> 'Alice'
           AND (
             COALESCE(pl.stock_available, 0) > 0
             OR EXISTS (SELECT 1 FROM yandex_market_stock_details yd WHERE yd.company_id = p.company_id AND yd.sku = p.sku AND yd.warehouse_id = 313 AND yd.stock_type = 'AVAILABLE' AND yd.count > 0)
@@ -1834,7 +1834,7 @@ export class DatabaseStorage implements IStorage {
           )
           AND COALESCE(oz.available_stock_count, 0) > 0)::int                          AS ozon_availability,
         COUNT(*) FILTER (WHERE
-          p.value_stream NOT IN ('Fashion', 'Alice')
+          p.value_stream <> 'Alice'
           AND (
             COALESCE(pl.stock_available, 0) > 0
             OR EXISTS (SELECT 1 FROM yandex_market_stock_details yd WHERE yd.company_id = p.company_id AND yd.sku = p.sku AND yd.warehouse_id = 313 AND yd.stock_type = 'AVAILABLE' AND yd.count > 0)
@@ -1875,6 +1875,7 @@ export class DatabaseStorage implements IStorage {
       LEFT JOIN wildberries_stocks wb ON wb.company_id = p.company_id AND wb.sku = p.sku
       LEFT JOIN threepl_stocks pl ON pl.company_id = p.company_id AND pl.sku = p.sku
       WHERE p.company_id = ${companyId}
+        AND p.value_stream <> 'Alice'
         AND (
           COALESCE(pl.stock_available, 0) > 0
           OR EXISTS (
