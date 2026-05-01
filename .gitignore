@@ -9,3 +9,4 @@ vite.config.ts.*
 .env.*
 yandex-ca.pem
 .claude/
+DEPLOYMENT.md
