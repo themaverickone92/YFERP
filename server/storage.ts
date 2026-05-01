@@ -40,7 +40,7 @@ import {
   inboundChanges,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, or, ilike, desc, asc, sql, inArray, gte } from "drizzle-orm";
+import { eq, and, or, ilike, desc, asc, sql, inArray, gte, type SQL } from "drizzle-orm";
 
 // pg returns TIMESTAMP (no tz) columns as strings without 'Z' — treat as UTC
 function pgTs(v: unknown): Date | null {
@@ -1737,7 +1737,14 @@ export class DatabaseStorage implements IStorage {
 
   async getInventorySummary(
     companyId: number,
-    opts: { search?: string; statuses?: string[]; categoryFilters?: string[] } = {}
+    opts: {
+      search?: string;
+      statuses?: string[];
+      categoryFilters?: string[];
+      valueStreams?: string[];
+      brands?: string[];
+      suppliers?: string[];
+    } = {}
   ): Promise<{
     totalActive: number;
     totalAvailability: number;
@@ -1746,23 +1753,21 @@ export class DatabaseStorage implements IStorage {
     wbAvailability: number;
     threeplAvailability: number;
   }> {
-    const { search, statuses, categoryFilters } = opts;
+    const { search, statuses, categoryFilters, valueStreams, brands, suppliers } = opts;
 
-    // Build dynamic WHERE clauses
-    const conditions: string[] = [
-      `p.company_id = ${companyId}`,
-      `p.status = 'active'`,
+    const conditions: SQL[] = [
+      sql`p.company_id = ${companyId}`,
+      sql`p.status = 'active'`,
     ];
 
     if (statuses && statuses.length > 0) {
-      const list = statuses.map(s => `'${s.replace(/'/g, "''")}'`).join(", ");
-      conditions.push(`p.status IN (${list})`);
+      conditions.push(sql`p.status IN (${sql.join(statuses.map(s => sql`${s}`), sql`, `)})`);
     }
 
     if (search && search.trim()) {
-      const term = search.trim().replace(/'/g, "''");
+      const term = `%${search.trim()}%`;
       conditions.push(
-        `(p.product_name ILIKE '%${term}%' OR p.sku ILIKE '%${term}%' OR p.brand_name ILIKE '%${term}%')`
+        sql`(p.product_name ILIKE ${term} OR p.sku ILIKE ${term} OR p.brand_name ILIKE ${term})`
       );
     }
 
@@ -1770,19 +1775,27 @@ export class DatabaseStorage implements IStorage {
       const catClauses = categoryFilters.map(f => {
         const parts = f.split(" > ");
         if (parts.length === 1) {
-          const vs = parts[0].replace(/'/g, "''");
-          return `p.value_stream = '${vs}'`;
-        } else {
-          const vs = parts[0].replace(/'/g, "''");
-          const cat = parts[1].replace(/'/g, "''");
-          return `(p.value_stream = '${vs}' AND p.category = '${cat}')`;
+          return sql`p.value_stream = ${parts[0]}`;
         }
+        return sql`(p.value_stream = ${parts[0]} AND p.category = ${parts[1]})`;
       });
-      conditions.push(`(${catClauses.join(" OR ")})`);
+      conditions.push(sql`(${sql.join(catClauses, sql` OR `)})`);
     }
 
-    const where = conditions.join(" AND ");
-    const result = await db.execute(sql.raw(`
+    if (valueStreams && valueStreams.length > 0) {
+      conditions.push(sql`p.value_stream IN (${sql.join(valueStreams.map(v => sql`${v}`), sql`, `)})`);
+    }
+
+    if (brands && brands.length > 0) {
+      conditions.push(sql`p.brand_name IN (${sql.join(brands.map(b => sql`${b}`), sql`, `)})`);
+    }
+
+    if (suppliers && suppliers.length > 0) {
+      conditions.push(sql`p.supplier_name IN (${sql.join(suppliers.map(s => sql`${s}`), sql`, `)})`);
+    }
+
+    const where = sql.join(conditions, sql` AND `);
+    const result = await db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE p.value_stream NOT IN ('Fashion', 'Alice'))::int          AS total_active,
         COUNT(*) FILTER (WHERE
@@ -1839,7 +1852,7 @@ export class DatabaseStorage implements IStorage {
       LEFT JOIN threepl_stocks pl
         ON pl.company_id = p.company_id AND pl.sku = p.sku
       WHERE ${where}
-    `));
+    `);
     const row = (result as any).rows?.[0] ?? result[0] ?? {};
     return {
       totalActive:          Number(row.total_active          ?? 0),

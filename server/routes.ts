@@ -1311,14 +1311,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.user.companyId) return res.status(400).json({ message: "No company associated" });
       let statuses: string[] = [];
       let categoryFilters: string[] = [];
+      let valueStreams: string[] = [];
+      let brands: string[] = [];
+      let suppliers: string[] = [];
       try {
         if (req.query.statuses) statuses = JSON.parse(req.query.statuses as string);
         if (req.query.cats) categoryFilters = JSON.parse(req.query.cats as string);
+        if (req.query.valueStreams) valueStreams = JSON.parse(req.query.valueStreams as string);
+        if (req.query.brands) brands = JSON.parse(req.query.brands as string);
+        if (req.query.suppliers) suppliers = JSON.parse(req.query.suppliers as string);
       } catch { /* ignore */ }
       const summary = await storage.getInventorySummary(req.user.companyId, {
         search: (req.query.search as string) || "",
         statuses,
         categoryFilters,
+        valueStreams,
+        brands,
+        suppliers,
       });
       res.json(summary);
     } catch (error) {

@@ -1530,7 +1530,7 @@ export default function Products() {
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-48 p-1" align="end" onCloseAutoFocus={e => e.preventDefault()}>
+                <PopoverContent className="w-48 p-1" align="end" onOpenAutoFocus={e => e.preventDefault()} onCloseAutoFocus={e => e.preventDefault()}>
                   {canEdit && (
                     <>
                       <button

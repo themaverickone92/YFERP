@@ -861,11 +861,14 @@ export default function Inventory() {
     ozonAvailability: number;
     wbAvailability: number;
   }>({
-    queryKey: ["/api/inventory/summary", debouncedSearch, statusFilters, categoryFilters],
+    queryKey: ["/api/inventory/summary", debouncedSearch, statusFilters, categoryFilters, vsFilters, brandFilters, supplierFilters],
     queryFn: async () => {
       const params = new URLSearchParams({ search: debouncedSearch });
       if (statusFilters.length > 0) params.set("statuses", JSON.stringify(statusFilters));
       if (categoryFilters.length > 0) params.set("cats", JSON.stringify(categoryFilters));
+      if (vsFilters.length > 0) params.set("valueStreams", JSON.stringify(vsFilters));
+      if (brandFilters.length > 0) params.set("brands", JSON.stringify(brandFilters));
+      if (supplierFilters.length > 0) params.set("suppliers", JSON.stringify(supplierFilters));
       const res = await fetch(`/api/inventory/summary?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
@@ -1191,7 +1194,7 @@ export default function Inventory() {
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-44 p-1" align="end" onCloseAutoFocus={e => e.preventDefault()}>
+                <PopoverContent className="w-44 p-1" align="end" onOpenAutoFocus={e => e.preventDefault()} onCloseAutoFocus={e => e.preventDefault()}>
                   <button
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-100"
                     onClick={() => { handleExport(); setExportMenuOpen(false); }}
