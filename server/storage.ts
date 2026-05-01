@@ -1863,6 +1863,36 @@ export class DatabaseStorage implements IStorage {
       threeplAvailability:  Number(row.threepl_availability  ?? 0),
     };
   }
+
+  // SKUs that satisfy the strict "RU available" predicate used by the RU summary card.
+  // Used by the client-side Availability=RU filter so filter and card stay consistent.
+  async getRuEligibleSkus(companyId: number): Promise<string[]> {
+    const result = await db.execute(sql`
+      SELECT p.sku
+      FROM products p
+      LEFT JOIN yandex_market_stocks ym ON ym.company_id = p.company_id AND ym.sku = p.sku
+      LEFT JOIN ozon_stocks oz ON oz.company_id = p.company_id AND oz.sku = p.sku
+      LEFT JOIN wildberries_stocks wb ON wb.company_id = p.company_id AND wb.sku = p.sku
+      LEFT JOIN threepl_stocks pl ON pl.company_id = p.company_id AND pl.sku = p.sku
+      WHERE p.company_id = ${companyId}
+        AND (
+          COALESCE(pl.stock_available, 0) > 0
+          OR EXISTS (
+            SELECT 1 FROM yandex_market_stock_details yd
+            WHERE yd.company_id = p.company_id AND yd.sku = p.sku
+              AND yd.warehouse_id = 313 AND yd.stock_type = 'AVAILABLE' AND yd.count > 0
+          )
+          OR (
+            COALESCE(ym.stock_available, 0) > 0
+            AND COALESCE(oz.available_stock_count, 0) > 0
+            AND COALESCE(wb.stock_available, 0) > 0
+          )
+        )
+    `);
+    const rows = (result as any).rows ?? (result as any) ?? [];
+    return rows.map((r: any) => r.sku as string);
+  }
+
   async logActivity(log: InsertActivityLog): Promise<ActivityLog> {
     const [result] = await db.insert(activityLogs).values(log).returning();
     return result;

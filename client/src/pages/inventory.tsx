@@ -944,6 +944,20 @@ export default function Inventory() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: ruEligibleSkus } = useQuery<string[]>({
+    queryKey: ["/api/inventory/ru-eligible-skus"],
+    queryFn: async () => {
+      const res = await fetch("/api/inventory/ru-eligible-skus", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch RU eligible SKUs");
+      return res.json();
+    },
+    enabled: !!user,
+    staleTime: 5 * 60_000,
+  });
+  const ruEligibleSet = new Set(ruEligibleSkus ?? []);
+
   const { data: orderedSummary = {} } = useQuery<Record<string, number>>({
     queryKey: ["/api/inbound/ordered-summary"],
     queryFn: async () => {
@@ -964,7 +978,7 @@ export default function Inventory() {
         if (af === "Ozon") return (ozonStocksData?.[p.sku]?.available ?? 0) > 0;
         if (af === "WB") return (wbStocksData?.[p.sku]?.available ?? 0) > 0;
         if (af === "3PL") return (threeplStocksData?.[p.sku]?.available ?? 0) > 0;
-        if (af === "RU") return (ymStocks?.[p.sku]?.available ?? 0) > 0 || (ozonStocksData?.[p.sku]?.available ?? 0) > 0 || (wbStocksData?.[p.sku]?.available ?? 0) > 0;
+        if (af === "RU") return ruEligibleSet.has(p.sku);
         return false;
       }))
     : allFetchedProducts;

@@ -1336,6 +1336,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/inventory/ru-eligible-skus — list of SKUs that satisfy the strict
+  // RU-availability predicate used by the RU summary card. Powers the
+  // client-side Availability=RU filter so it stays consistent with the card.
+  app.get("/api/inventory/ru-eligible-skus", authenticateToken, async (req: any, res: any) => {
+    try {
+      if (!req.user.companyId) return res.status(400).json({ message: "No company associated" });
+      const skus = await storage.getRuEligibleSkus(req.user.companyId);
+      res.json(skus);
+    } catch (error) {
+      console.error("Get RU eligible SKUs error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // GET /api/inventory/stocks  — returns YM stock map keyed by SKU
   app.get("/api/inventory/stocks", authenticateToken, async (req: any, res) => {
     try {
