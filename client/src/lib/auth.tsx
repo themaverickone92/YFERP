@@ -28,7 +28,6 @@ interface AuthContextType {
   company: Company | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
-  adminDemo: () => Promise<void>;
   logout: () => void;
   refreshAuth: () => Promise<void>;
   setTokenAndUser: (token: string) => Promise<void>;
@@ -107,18 +106,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCompany(data.company);
   };
 
-  const adminDemo = async () => {
-    // Clear cache before demo login to ensure fresh data
-    queryClient.clear();
-    
-    const response = await apiRequest("POST", "/api/auth/admin-demo", {});
-    const data = await response.json();
-    
-    localStorage.setItem("token", data.token);
-    setUser(data.user);
-    setCompany(data.company);
-  };
-
   const setTokenAndUser = async (token: string) => {
     queryClient.clear();
     localStorage.setItem("token", token);
@@ -138,7 +125,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       company,
       login,
       register,
-      adminDemo,
       logout,
       refreshAuth: checkAuth,
       setTokenAndUser,

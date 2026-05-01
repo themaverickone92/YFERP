@@ -8,5 +8,7 @@ vite.config.ts.*
 .env
 .env.*
 yandex-ca.pem
+*.pem
+*-certificate-*.pem
 .claude/
 DEPLOYMENT.md

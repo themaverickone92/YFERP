@@ -43,7 +43,10 @@ function calculateProductDimensions(lengthCm: number, widthCm: number, heightCm:
   };
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET env variable is required");
+}
 
 // Middleware to verify JWT token
 const authenticateToken = async (req: any, res: any, next: any) => {
@@ -150,91 +153,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Login error:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  // Demo admin login
-  app.post("/api/auth/admin-demo", async (req, res) => {
-    try {
-      // Create or get demo admin user
-      let user = await storage.getUserByEmail("admin@marketpro.ru");
-      let company;
-
-      if (!user) {
-        // Create demo company
-        company = await storage.createCompany({
-          name: "ООО Демо Компания",
-          inn: "1234567890",
-          address: "г. Москва, ул. Демонстрационная, д. 1",
-          phone: "+7 (999) 123-45-67",
-          email: "demo@marketpro.ru",
-          subscriptionTier: "professional",
-          subscriptionStatus: "active",
-          maxSku: 1000,
-          currentSku: 89,
-        });
-
-        const hashedPassword = await bcrypt.hash("admin123", 10);
-        user = await storage.createUser({
-          email: "admin@marketpro.ru",
-          password: hashedPassword,
-          name: "Администратор",
-          role: "admin",
-          companyId: null, // Don't set directly
-        });
-
-        await storage.updateCompany(company.id, { ownerId: user.id });
-
-        // Add user to company with admin role using junction table
-        await storage.addUserToCompany(user.id, company.id, "admin");
-
-        // Link company to user record so req.user.companyId is set
-        await storage.updateUser(user.id, { companyId: company.id });
-        user = await storage.getUser(user.id) as typeof user;
-
-        // Create demo integrations
-        await storage.createOrUpdateIntegration({
-          companyId: company.id,
-          marketplace: "ozon",
-          isEnabled: true,
-          apiKey: "demo_ozon_key",
-          clientId: "12345",
-        });
-
-        // Create demo warehouses
-        await storage.createWarehouse({
-          companyId: company.id,
-          name: "Основной склад",
-          address: "г. Москва, ул. Складская, д. 1",
-          productCount: 1234,
-        });
-
-        await storage.createWarehouse({
-          companyId: company.id,
-          name: "Региональный склад",
-          address: "г. Санкт-Петербург, ул. Логистическая, д. 5",
-          productCount: 567,
-        });
-      } else {
-        company = await storage.getCompany(user.companyId!);
-      }
-
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-
-      res.json({
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          companyId: user.companyId,
-        },
-        company,
-        token,
-      });
-    } catch (error) {
-      console.error("Demo admin login error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

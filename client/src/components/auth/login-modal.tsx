@@ -16,7 +16,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { login, adminDemo } = useAuth();
+  const { login } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
@@ -36,27 +36,6 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
       toast({
         title: "Ошибка входа",
         description: "Неверный email или пароль",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleAdminDemo = async () => {
-    setIsLoading(true);
-    try {
-      await adminDemo();
-      onClose();
-      navigate("/dashboard");
-      toast({
-        title: "Демо доступ",
-        description: "Вы вошли как администратор",
-      });
-    } catch (error) {
-      toast({
-        title: "Ошибка",
-        description: "Не удалось войти в демо режим",
         variant: "destructive",
       });
     } finally {
@@ -101,22 +80,6 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
             {isLoading ? "Входим..." : "Войти"}
           </Button>
         </form>
-
-        <div className="mt-6 p-4 bg-neutral-50 rounded-lg">
-          <h3 className="text-sm font-semibold text-neutral-700 mb-2">
-            Демо доступ для тестирования:
-          </h3>
-          <Button 
-            onClick={handleAdminDemo} 
-            className="w-full bg-accent hover:bg-accent/90 mb-2"
-            disabled={isLoading}
-          >
-            Войти как Администратор
-          </Button>
-          <p className="text-xs text-neutral-500">
-            Email: admin@marketpro.ru | Пароль: admin123
-          </p>
-        </div>
       </DialogContent>
     </Dialog>
   );
